@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title id="pageTitle">レース分析</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
+h1 { font-size: 18px; font-weight: 500; margin-bottom: 16px; color: #fff; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.card { background: #16213e; border-radius: 10px; padding: 12px; }
+.card label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; }
+.card .val { font-size: 22px; font-weight: 500; }
+canvas { display: block; border-radius: 8px; }
+.km-btn { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; margin: 3px; cursor: pointer; border: 1px solid #444; background: #16213e; color: #ccc; }
+.km-btn:hover, .km-btn.active { background: #378ADD; color: #fff; border-color: #378ADD; }
+#info-box { background: #16213e; border-radius: 10px; padding: 12px; margin-bottom: 16px; min-height: 60px; }
+#hrChart-section { display: none; }
+</style>
+</head>
+<body>
+
+<h1 id="mainTitle">レース分析</h1>
+
+<div class="grid" id="summaryGrid"></div>
+
+<div id="info-box">
+  <div style="font-size:13px; color:#aaa;">↓ km区間をクリックして詳細を見る</div>
+</div>
+
+<div id="km-buttons" style="margin-bottom:8px;"></div>
+
+<div style="margin-bottom:16px;">
+  <canvas id="mapCanvas" width="700" height="500" style="width:100%;background:#0f3460;border-radius:10px;"></canvas>
+</div>
+
+<div style="margin-bottom:8px; font-size:13px; color:#aaa;">標高プロファイル（全コース）</div>
+<div style="position:relative;height:160px;margin-bottom:16px;">
+  <canvas id="eleChart"></canvas>
+</div>
+
+<div style="margin-bottom:8px; font-size:13px; color:#aaa;">km別ペースと標高変化</div>
+<div style="position:relative;height:200px;margin-bottom:16px;">
+  <canvas id="paceChart"></canvas>
+</div>
+
+<div id="hrChart-section">
+  <div style="margin-bottom:8px; font-size:13px; color:#aaa;">km別：心拍数と標高変化</div>
+  <div style="position:relative;height:200px;">
+    <canvas id="tripleChart"></canvas>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const raceData = {"race_summary": {"date": "2026-04-05", "total_distance_km": 9.999, "total_time_sec": 3581, "total_time_str": "59'30\"", "max_speed_kmh": 17.6, "avg_pace": 5.95, "avg_pace_str": "5'57\"", "hr_avg": 171.8, "hr_min": 149, "hr_max": 196, "calories": 90, "source": "小松圭さんのApple Watch", "total_ele_gain": 175, "total_ele_loss": 177}, "route": [[38.855642, 141.616735, 1], [38.85543, 141.616736, 1], [38.855064, 141.616768, 1], [38.85467, 141.616862, 1], [38.854243, 141.61706, 1], [38.85384, 141.617218, 1], [38.853465, 141.617433, 1], [38.853127, 141.61771, 1], [38.852782, 141.617964, 1], [38.852413, 141.618221, 1], [38.852054, 141.618481, 1], [38.851647, 141.618711, 1], [38.851209, 141.618895, 1], [38.850781, 141.619061, 1], [38.850337, 141.619157, 1], [38.849908, 141.619211, 1], [38.849491, 141.61929, 1], [38.84905, 141.619391, 1], [38.84864, 141.619494, 1], [38.84825, 141.619653, 1], [38.847881, 141.619832, 1], [38.847439, 141.619766, 1], [38.847191, 141.619674, 1], [38.846895, 141.619474, 2], [38.846493, 141.619215, 2], [38.846083, 141.618934, 2], [38.845687, 141.618656, 2], [38.845295, 141.618893, 2], [38.844878, 141.619058, 2], [38.844468, 141.619124, 2], [38.84408, 141.619267, 2], [38.843773, 141.619575, 2], [38.843584, 141.619981, 2], [38.843517, 141.620477, 2], [38.843404, 141.621009, 2], [38.843314, 141.621538, 2], [38.843213, 141.622076, 2], [38.843074, 141.622551, 2], [38.842892, 141.622996, 2], [38.84273, 141.623388, 2], [38.842661, 141.623855, 2], [38.842666, 141.624299, 2], [38.842667, 141.624765, 2], [38.842624, 141.625273, 2], [38.842525, 141.625791, 2], [38.842163, 141.625951, 3], [38.841736, 141.625793, 3], [38.841293, 141.625636, 3], [38.84089, 141.625388, 3], [38.840596, 141.624993, 3], [38.840271, 141.624631, 3], [38.83991, 141.624401, 3], [38.839503, 141.624252, 3], [38.839095, 141.62406, 3], [38.838745, 141.623653, 3], [38.838574, 141.623092, 3], [38.838563, 141.622511, 3], [38.838657, 141.621903, 3], [38.838718, 141.6213, 3], [38.838644, 141.620738, 3], [38.83852, 141.62018, 3], [38.838676, 141.619604, 3], [38.839094, 141.619376, 3], [38.839544, 141.619471, 3], [38.839995, 141.619574, 3], [38.840452, 141.619611, 4], [38.840877, 141.619352, 4], [38.841225, 141.619031, 4], [38.841469, 141.618651, 4], [38.841701, 141.618283, 4], [38.841958, 141.617895, 4], [38.842258, 141.617517, 4], [38.84261, 141.617214, 4], [38.842939, 141.616936, 4], [38.843351, 141.616905, 4], [38.843782, 141.617197, 4], [38.844168, 141.617481, 4], [38.844527, 141.617721, 4], [38.844863, 141.617964, 4], [38.845206, 141.618177, 4], [38.845529, 141.618436, 4], [38.845833, 141.618339, 4], [38.8462, 141.618116, 4], [38.846609, 141.617941, 4], [38.847039, 141.617711, 4], [38.847403, 141.617315, 4], [38.847768, 141.616927, 5], [38.848082, 141.61648, 5], [38.848324, 141.615988, 5], [38.848697, 141.615499, 5], [38.849061, 141.614995, 5], [38.849343, 141.614482, 5], [38.849602, 141.61399, 5], [38.849921, 141.613544, 5], [38.850326, 141.613142, 5], [38.850494, 141.612788, 5], [38.850628, 141.612339, 5], [38.850917, 141.61179, 5], [38.851286, 141.611517, 5], [38.851745, 141.611486, 5], [38.852167, 141.611439, 5], [38.852615, 141.611399, 5], [38.853049, 141.611265, 5], [38.853432, 141.61105, 5], [38.853776, 141.610746, 5], [38.854097, 141.610381, 5], [38.854017, 141.610565, 6], [38.853714, 141.610943, 6], [38.853339, 141.611266, 6], [38.852922, 141.611424, 6], [38.852513, 141.611467, 6], [38.851995, 141.611579, 6], [38.851486, 141.611638, 6], [38.851073, 141.611759, 6], [38.850793, 141.612184, 6], [38.850639, 141.612717, 6], [38.850438, 141.613146, 6], [38.850086, 141.613523, 6], [38.849762, 141.613889, 6], [38.849541, 141.614299, 6], [38.849349, 141.614702, 6], [38.849115, 141.615133, 6], [38.848821, 141.615496, 6], [38.848528, 141.61584, 6], [38.848311, 141.616235, 6], [38.848059, 141.616675, 6], [38.84774, 141.617075, 6], [38.847427, 141.61744, 7], [38.847103, 141.617785, 7], [38.846702, 141.618025, 7], [38.84627, 141.618192, 7], [38.845846, 141.61843, 7], [38.845411, 141.618451, 7], [38.844936, 141.61814, 7], [38.844498, 141.617811, 7], [38.844043, 141.61747, 7], [38.843601, 141.617172, 7], [38.843151, 141.616981, 7], [38.842737, 141.617244, 7], [38.842332, 141.617599, 7], [38.842011, 141.61797, 7], [38.841712, 141.618445, 7], [38.841416, 141.618909, 7], [38.841056, 141.619344, 7], [38.84062, 141.619641, 7], [38.840199, 141.619738, 7], [38.839775, 141.619619, 8], [38.839347, 141.619518, 8], [38.838971, 141.619512, 8], [38.838676, 141.619847, 8], [38.838621, 141.620281, 8], [38.838722, 141.620717, 8], [38.838814, 141.621197, 8], [38.83875, 141.621702, 8], [38.838694, 141.622159, 8], [38.838651, 141.622613, 8], [38.838662, 141.623085, 8], [38.838816, 141.623521, 8], [38.839063, 141.623826, 8], [38.839327, 141.624062, 8], [38.839655, 141.62418, 8], [38.840031, 141.624286, 8], [38.840387, 141.624488, 8], [38.840672, 141.624834, 8], [38.840928, 141.625188, 8], [38.841204, 141.625455, 8], [38.841549, 141.625584, 8], [38.8419, 141.625726, 8], [38.842268, 141.625854, 8], [38.842449, 141.625545, 8], [38.842529, 141.625072, 9], [38.842522, 141.624593, 9], [38.842551, 141.624059, 9], [38.842586, 141.623543, 9], [38.842738, 141.623024, 9], [38.842964, 141.622547, 9], [38.843106, 141.622019, 9], [38.843225, 141.621468, 9], [38.843335, 141.620943, 9], [38.843417, 141.620435, 9], [38.84352, 141.619892, 9], [38.84376, 141.619374, 9], [38.844182, 141.619043, 9], [38.844708, 141.618954, 9], [38.845184, 141.618803, 9], [38.845617, 141.618535, 9], [38.84605, 141.618753, 9], [38.846435, 141.619035, 9], [38.846803, 141.619284, 9], [38.847108, 141.61947, 9], [38.847546, 141.619665, 10], [38.848009, 141.619647, 10], [38.848456, 141.61941, 10], [38.84892, 141.619299, 10], [38.849371, 141.619152, 10], [38.849826, 141.619094, 10], [38.850298, 141.619018, 10], [38.85076, 141.618937, 10], [38.851168, 141.618776, 10], [38.851561, 141.618616, 10], [38.851944, 141.618401, 10], [38.852319, 141.618156, 10], [38.852728, 141.617852, 10], [38.853186, 141.617522, 10], [38.853605, 141.61718, 10], [38.854035, 141.616994, 10], [38.854489, 141.616815, 10], [38.854985, 141.616701, 10], [38.855582, 141.616646, 10], [38.855694, 141.616637, 10], [38.855612, 141.616638, 10], [38.855565, 141.616622, 10]], "elevation_profile": [[0.0, 32.7], [0.067, 29.9], [0.165, 26.7], [0.261, 24.4], [0.352, 23.4], [0.448, 23.2], [0.553, 21.0], [0.655, 18.1], [0.753, 20.5], [0.851, 22.1], [0.945, 26.2], [1.014, 27.4], [1.119, 27.9], [1.222, 24.3], [1.32, 27.7], [1.412, 34.2], [1.501, 40.9], [1.598, 42.2], [1.693, 42.7], [1.777, 49.0], [1.861, 55.1], [1.949, 60.5], [2.052, 58.1], [2.155, 53.4], [2.255, 52.0], [2.35, 50.2], [2.452, 42.9], [2.559, 36.3], [2.667, 30.5], [2.771, 23.7], [2.88, 19.2], [2.984, 15.2], [3.092, 9.8], [3.186, 12.2], [3.274, 15.2], [3.371, 17.1], [3.468, 16.3], [3.572, 15.2], [3.662, 19.6], [3.749, 24.0], [3.838, 27.9], [3.944, 26.2], [4.052, 23.3], [4.162, 20.2], [4.284, 15.7], [4.39, 11.8], [4.493, 7.2], [4.59, 6.2], [4.693, 6.1], [4.794, 6.4], [4.894, 6.5], [4.99, 7.0], [5.088, 7.0], [5.19, 6.7], [5.299, 5.1], [5.404, 6.4], [5.506, 7.6], [5.605, 9.0], [5.696, 13.8], [5.785, 15.6], [5.875, 18.9], [5.973, 21.7], [6.071, 24.7], [6.174, 27.1], [6.279, 23.9], [6.398, 17.6], [6.516, 15.0], [6.625, 17.1], [6.731, 15.7], [6.838, 12.1], [6.951, 9.0], [7.052, 14.3], [7.144, 18.0], [7.23, 23.0], [7.316, 28.1], [7.402, 32.9], [7.486, 37.7], [7.567, 43.4], [7.645, 49.1], [7.736, 51.1], [7.821, 51.1], [7.903, 54.2], [7.989, 57.3], [8.076, 57.1], [8.17, 50.3], [8.269, 43.5], [8.371, 40.5], [8.466, 41.1], [8.57, 35.1], [8.688, 27.6], [8.8, 25.3], [8.903, 29.9], [8.99, 28.5], [9.101, 24.8], [9.209, 21.6], [9.316, 19.4], [9.421, 20.9], [9.515, 23.7], [9.616, 24.0], [9.733, 25.0], [9.84, 27.2], [9.967, 31.4], [9.993, 32.8]], "km_summaries": [{"km": 1, "pace": 6.34, "eleNet": -5.3, "eleGain": 9.6, "eleLoss": 14.9, "km_label": {"lat": 38.851574, "lon": 141.618742}, "hr": 155, "power": 190, "comment": "出だし。緩やかな下り。心拍155はまだ余裕あり。ウォームアップ的な区間。", "pace_str": "6'20\""}, {"km": 2, "pace": 6.22, "eleNet": 31.6, "eleGain": 40.1, "eleLoss": 8.6, "km_label": {"lat": 38.843469, "lon": 141.62067}, "hr": 163, "power": 239, "comment": "最初の登り+40m。心拍163に上昇。パワー239wと今日最高値。登りへの対応が出ている。", "pace_str": "6'13\""}, {"km": 3, "pace": 5.61, "eleNet": -44.3, "eleGain": 0.1, "eleLoss": 44.5, "km_label": {"lat": 38.838683, "lon": 141.623524}, "hr": 163, "power": 177, "comment": "最大の下り(-45m)。心拍は163のまま据え置きでペースが5'38\"に上昇。下りを活かせた。", "pace_str": "5'37\""}, {"km": 4, "pace": 6.05, "eleNet": 10.2, "eleGain": 20.8, "eleLoss": 10.7, "km_label": {"lat": 38.84368, "lon": 141.617123}, "hr": 164, "power": 220, "comment": "小刻みなアップダウン。心拍164とほぼ横ばい。体が安定してきた区間。", "pace_str": "6'03\""}, {"km": 5, "pace": 5.6, "eleNet": -17.5, "eleGain": 3.2, "eleLoss": 20.7, "km_label": {"lat": 38.850532, "lon": 141.612669}, "hr": 170, "power": 199, "comment": "海岸沿いの下り基調。心拍170に上昇しながらペース5'35\"。前半最速区間。", "pace_str": "5'36\""}, {"km": 6, "pace": 5.92, "eleNet": 15.4, "eleGain": 20.7, "eleLoss": 5.2, "km_label": {"lat": 38.85052, "lon": 141.613003}, "hr": 175, "power": 228, "comment": "折り返し後の登り返し。心拍175。ペースは5'54\"と抑えながら心拍は上昇中。", "pace_str": "5'55\""}, {"km": 7, "pace": 5.37, "eleNet": -11.5, "eleGain": 9.0, "eleLoss": 20.5, "km_label": {"lat": 38.843753, "lon": 141.617286}, "hr": 179, "power": 216, "comment": "今日の最速区間5'21\"。心拍179でも下り基調で加速。体が乗ってきた。", "pace_str": "5'22\""}, {"km": 8, "pace": 6.79, "eleNet": 46.6, "eleGain": 46.9, "eleLoss": 0.3, "km_label": {"lat": 38.838843, "lon": 141.623571}, "hr": 181, "power": 231, "comment": "★ 最大の壁。心拍181なのにペース6'47\"。心拍は高いが脚が進まない＝地形の必然。", "pace_str": "6'47\""}, {"km": 9, "pace": 5.81, "eleNet": -29.4, "eleGain": 9.3, "eleLoss": 38.7, "km_label": {"lat": 38.843458, "lon": 141.620249}, "hr": 174, "power": 189, "comment": "登り後の下り。心拍174と少し落ち着きペース5'46\"に回復。フォームを保てた証拠。", "pace_str": "5'49\""}, {"km": 10, "pace": 5.97, "eleNet": 1.9, "eleGain": 14.8, "eleLoss": 12.9, "km_label": {"lat": 38.851986, "lon": 141.618374}, "hr": null, "power": null, "comment": "", "pace_str": "5'58\""}]};
+
+// =====================
+// セットアップ
+// =====================
+
+const rs = raceData.race_summary;
+const kmSummaries = raceData.km_summaries;
+const route = raceData.route;
+const elevationProfile = raceData.elevation_profile;
+
+// タイトル
+const dateLabel = rs.date || "";
+document.getElementById("pageTitle").textContent = `レース分析 ${dateLabel}`;
+document.getElementById("mainTitle").textContent = `レース分析 — ${dateLabel}`;
+
+// サマリーカード
+function buildSummaryGrid() {
+  const grid = document.getElementById("summaryGrid");
+  const cards = [
+    { label: "距離（GPX）", val: `${rs.total_distance_km.toFixed(3)} km`, color: "#4fc3f7" },
+    { label: "タイム", val: rs.total_time_str || "N/A", color: "#81c784" },
+    { label: "平均ペース", val: `${rs.avg_pace_str || "N/A"}/km`, color: null },
+    { label: "獲得標高", val: `+${rs.total_ele_gain}m / -${rs.total_ele_loss}m`, color: "#ffb74d" },
+    rs.hr_avg ? { label: "平均心拍（CSV）", val: `${rs.hr_avg} bpm`, color: "#ef9a9a" } : null,
+    rs.max_speed_kmh ? { label: "最高速度（GPX）", val: `${rs.max_speed_kmh} km/h`, color: null } : null,
+  ].filter(Boolean);
+
+  grid.innerHTML = cards.map(c => `
+    <div class="card">
+      <label>${c.label}</label>
+      <div class="val"${c.color ? ` style="color:${c.color}"` : ""}>${c.val}</div>
+    </div>
+  `).join("");
+}
+buildSummaryGrid();
+
+// kmボタン生成
+const kmColors = ['#4fc3f7','#81c784','#4fc3f7','#81c784','#4fc3f7','#81c784','#378ADD','#ef5350','#81c784','#4fc3f7'];
+function getKmColor(idx) { return kmColors[(idx - 1) % kmColors.length]; }
+
+function buildKmButtons() {
+  const container = document.getElementById("km-buttons");
+  container.innerHTML = kmSummaries.map(s => {
+    const isWorst = s.eleNet > 40;
+    const style = isWorst ? ` style="border-color:#ef5350;color:#ef5350;"` : "";
+    const label = isWorst ? `km${s.km} ★` : `km${s.km}`;
+    return `<span id="km${s.km}" class="km-btn"${style} onclick="showKm(${s.km})">${label}</span>`;
+  }).join("");
+}
+buildKmButtons();
+
+// =====================
+// km情報ボックス
+// =====================
+
+function showKm(k) {
+  const d = kmSummaries.find(s => s.km === k);
+  if (!d) return;
+  const box = document.getElementById("info-box");
+  const hrColor = d.hr >= 180 ? "#ef5350" : d.hr >= 170 ? "#ff8a65" : "#ef9a9a";
+  const kmColor = getKmColor(k);
+
+  let hrHtml = d.hr ? `<div><span style="font-size:11px;color:#888;">心拍</span><br><span style="font-weight:500;color:${hrColor}">${d.hr} bpm</span></div>` : "";
+  let powerHtml = d.power ? `<div><span style="font-size:11px;color:#888;">パワー</span><br><span style="font-weight:500;">${d.power}w</span></div>` : "";
+
+  box.innerHTML = `
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+      <div style="font-size:20px;font-weight:500;color:${kmColor}">km${k}</div>
+      <div><span style="font-size:11px;color:#888;">ペース</span><br><span style="font-weight:500;">${d.pace_str || "N/A"}</span></div>
+      ${hrHtml}
+      <div><span style="font-size:11px;color:#888;">標高変化</span><br><span style="font-weight:500;color:${d.eleNet>0?"#ffb74d":"#4fc3f7"}">${d.eleNet>0?"+":""}${d.eleNet.toFixed(1)}m</span></div>
+      <div><span style="font-size:11px;color:#888;">上り/下り</span><br><span style="font-weight:500;">↑${d.eleGain.toFixed(0)}m ↓${d.eleLoss.toFixed(0)}m</span></div>
+      ${powerHtml}
+    </div>
+    ${d.comment ? `<div style="margin-top:8px;font-size:13px;color:#aaa;">${d.comment}</div>` : ""}
+  `;
+  document.querySelectorAll(".km-btn").forEach(b => b.classList.remove("active"));
+  const btn = document.getElementById("km" + k);
+  if (btn) btn.classList.add("active");
+  drawMap(k);
+}
+
+// =====================
+// 地図 Canvas
+// =====================
+
+const lats = route.map(r => r[0]);
+const lons = route.map(r => r[1]);
+const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+
+function toCanvas(lat, lon, W, H, pad) {
+  const x = pad + (lon - minLon) / (maxLon - minLon) * (W - pad * 2);
+  const y = pad + (maxLat - lat) / (maxLat - minLat) * (H - pad * 2);
+  return [x, y];
+}
+
+function drawMap(highlight) {
+  const canvas = document.getElementById("mapCanvas");
+  const W = canvas.width, H = canvas.height;
+  const pad = 40;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0f3460";
+  ctx.fillRect(0, 0, W, H);
+
+  // グリッド
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad + (H - pad * 2) * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+    const x = pad + (W - pad * 2) * i / 4;
+    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, H - pad); ctx.stroke();
+  }
+
+  // ルート描画（km別色分け）
+  const maxKm = Math.max(...route.map(r => r[2]));
+  for (let km = 1; km <= maxKm; km++) {
+    const seg = route.filter(r => r[2] === km);
+    if (seg.length < 2) continue;
+    const isHL = highlight && km === highlight;
+    ctx.beginPath();
+    ctx.lineWidth = isHL ? 5 : 2.5;
+    ctx.strokeStyle = isHL
+      ? getKmColor(km)
+      : (highlight ? "rgba(255,255,255,0.2)" : getKmColor(km));
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const [sx, sy] = toCanvas(seg[0][0], seg[0][1], W, H, pad);
+    ctx.moveTo(sx, sy);
+    seg.forEach(p => { const [x, y] = toCanvas(p[0], p[1], W, H, pad); ctx.lineTo(x, y); });
+    ctx.stroke();
+  }
+
+  // kmラベル
+  kmSummaries.forEach(s => {
+    const { lat, lon } = s.km_label;
+    const [x, y] = toCanvas(lat, lon, W, H, pad);
+    const isHL = highlight && s.km === highlight;
+    ctx.beginPath();
+    ctx.arc(x, y, isHL ? 10 : 6, 0, Math.PI * 2);
+    ctx.fillStyle = getKmColor(s.km);
+    ctx.fill();
+    ctx.fillStyle = "#000";
+    ctx.font = `bold ${isHL ? 11 : 9}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(s.km, x, y);
+  });
+
+  // スタートマーカー
+  const [sx, sy] = toCanvas(route[0][0], route[0][1], W, H, pad);
+  ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff"; ctx.fill();
+  ctx.fillStyle = "#000"; ctx.font = "bold 9px sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("S", sx, sy);
+
+  // 方角
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText("N↑", W - 8, 8);
+}
+
+drawMap(null);
+
+// =====================
+// 標高プロファイル
+// =====================
+
+new Chart(document.getElementById("eleChart"), {
+  type: "line",
+  data: {
+    labels: elevationProfile.map(p => p[0].toFixed(1)),
+    datasets: [{
+      data: elevationProfile.map(p => p[1]),
+      borderColor: "#ffb74d",
+      backgroundColor: "rgba(255,183,77,0.15)",
+      borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => `${ctx.raw.toFixed(1)}m` } }
+    },
+    scales: {
+      x: {
+        ticks: { font: { size: 10 }, color: "#888", callback: (v, i) => i % 10 === 0 ? elevationProfile[i][0].toFixed(1) + "km" : "" },
+        grid: { color: "rgba(255,255,255,0.05)" }
+      },
+      y: {
+        ticks: { font: { size: 10 }, color: "#ffb74d", callback: v => `${v}m` },
+        grid: { color: "rgba(255,255,255,0.05)" }
+      }
+    }
+  }
+});
+
+// =====================
+// ペースチャート
+// =====================
+
+const kmLabels = kmSummaries.map(s => `km${s.km}`);
+const paceVals = kmSummaries.map(s => s.pace);
+const eleNets = kmSummaries.map(s => s.eleNet);
+
+new Chart(document.getElementById("paceChart"), {
+  type: "bar",
+  data: {
+    labels: kmLabels,
+    datasets: [
+      {
+        label: "ペース",
+        data: paceVals,
+        backgroundColor: paceVals.map(p => p >= 6.5 ? "#ef5350" : p <= 5.7 ? "#4fc3f7" : "#4a90d9"),
+        yAxisID: "y", order: 2
+      },
+      {
+        label: "標高変化",
+        data: eleNets,
+        type: "line",
+        borderColor: "#ffb74d",
+        backgroundColor: "transparent",
+        pointBackgroundColor: eleNets.map(e => e > 20 ? "#ef5350" : e < -20 ? "#4fc3f7" : "#ffb74d"),
+        pointRadius: 5, tension: 0.3, yAxisID: "y2", order: 1
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            if (ctx.dataset.yAxisID === "y") {
+              const m = Math.floor(ctx.raw);
+              const s = Math.round((ctx.raw - m) * 60);
+              return `${m}'${String(s).padStart(2, "0")}"`;
+            }
+            return `標高: ${ctx.raw > 0 ? "+" : ""}${ctx.raw.toFixed(1)}m`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { ticks: { font: { size: 11 }, color: "#aaa", autoSkip: false }, grid: { display: false } },
+      y: {
+        position: "left", min: 4.5, max: 7.5,
+        ticks: { font: { size: 10 }, color: "#aaa", callback: v => { const m = Math.floor(v); const s = Math.round((v - m) * 60); return `${m}'${String(s).padStart(2, "0")}"`;} },
+        grid: { color: "rgba(255,255,255,0.05)" }
+      },
+      y2: {
+        position: "right", min: -60, max: 60,
+        ticks: { font: { size: 10 }, color: "#ffb74d", callback: v => `${v > 0 ? "+" : ""}${v}m` },
+        grid: { display: false }
+      }
+    }
+  }
+});
+
+// =====================
+// 心拍チャート（スプリットデータがある場合のみ表示）
+// =====================
+
+const hrData = kmSummaries.map(s => s.hr).filter(h => h != null);
+if (hrData.length > 0) {
+  document.getElementById("hrChart-section").style.display = "block";
+
+  new Chart(document.getElementById("tripleChart"), {
+    type: "bar",
+    data: {
+      labels: kmLabels,
+      datasets: [
+        {
+          label: "標高変化(m)",
+          data: eleNets,
+          backgroundColor: eleNets.map(e => e > 20 ? "rgba(239,83,80,0.75)" : e < -20 ? "rgba(79,195,247,0.75)" : "rgba(180,180,180,0.35)"),
+          borderColor: eleNets.map(e => e > 20 ? "#ef5350" : e < -20 ? "#4fc3f7" : "#888"),
+          borderWidth: 1, yAxisID: "y", order: 2
+        },
+        {
+          label: "心拍(bpm)",
+          data: kmSummaries.map(s => s.hr),
+          type: "line",
+          borderColor: "#ef9a9a",
+          backgroundColor: "transparent",
+          pointBackgroundColor: kmSummaries.map(s => s.hr >= 180 ? "#ef5350" : s.hr >= 170 ? "#ff8a65" : "#ef9a9a"),
+          pointRadius: 5, borderWidth: 2, tension: 0.3, yAxisID: "y2", order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.yAxisID === "y") return `標高: ${ctx.raw > 0 ? "+" : ""}${ctx.raw.toFixed(1)}m`;
+              return `心拍: ${ctx.raw} bpm`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { font: { size: 11 }, color: "#aaa", autoSkip: false }, grid: { display: false } },
+        y: {
+          position: "left", min: -60, max: 60,
+          title: { display: true, text: "標高変化(m)", color: "#ffb74d", font: { size: 10 } },
+          ticks: { font: { size: 10 }, color: "#ffb74d", callback: v => `${v > 0 ? "+" : ""}${v}m` },
+          grid: { color: "rgba(255,255,255,0.07)" }
+        },
+        y2: {
+          position: "right", min: 145, max: 200,
+          title: { display: true, text: "心拍(bpm)", color: "#ef9a9a", font: { size: 10 } },
+          ticks: { font: { size: 10 }, color: "#ef9a9a" },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>

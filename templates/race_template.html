@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title id="pageTitle">レース分析</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
+h1 { font-size: 18px; font-weight: 500; margin-bottom: 16px; color: #fff; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.card { background: #16213e; border-radius: 10px; padding: 12px; }
+.card label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; }
+.card .val { font-size: 22px; font-weight: 500; }
+canvas { display: block; border-radius: 8px; }
+.km-btn { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; margin: 3px; cursor: pointer; border: 1px solid #444; background: #16213e; color: #ccc; }
+.km-btn:hover, .km-btn.active { background: #378ADD; color: #fff; border-color: #378ADD; }
+#info-box { background: #16213e; border-radius: 10px; padding: 12px; margin-bottom: 16px; min-height: 60px; }
+#hrChart-section { display: none; }
+</style>
+</head>
+<body>
+
+<h1 id="mainTitle">レース分析</h1>
+
+<div class="grid" id="summaryGrid"></div>
+
+<div id="info-box">
+  <div style="font-size:13px; color:#aaa;">↓ km区間をクリックして詳細を見る</div>
+</div>
+
+<div id="km-buttons" style="margin-bottom:8px;"></div>
+
+<div style="margin-bottom:16px;">
+  <canvas id="mapCanvas" width="700" height="500" style="width:100%;background:#0f3460;border-radius:10px;"></canvas>
+</div>
+
+<div style="margin-bottom:8px; font-size:13px; color:#aaa;">標高プロファイル（全コース）</div>
+<div style="position:relative;height:160px;margin-bottom:16px;">
+  <canvas id="eleChart"></canvas>
+</div>
+
+<div style="margin-bottom:8px; font-size:13px; color:#aaa;">km別ペースと標高変化</div>
+<div style="position:relative;height:200px;margin-bottom:16px;">
+  <canvas id="paceChart"></canvas>
+</div>
+
+<div id="hrChart-section">
+  <div style="margin-bottom:8px; font-size:13px; color:#aaa;">km別：心拍数と標高変化</div>
+  <div style="position:relative;height:200px;">
+    <canvas id="tripleChart"></canvas>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const raceData = __RACE_DATA__;
+
+// =====================
+// セットアップ
+// =====================
+
+const rs = raceData.race_summary;
+const kmSummaries = raceData.km_summaries;
+const route = raceData.route;
+const elevationProfile = raceData.elevation_profile;
+
+// タイトル
+const dateLabel = rs.date || "";
+document.getElementById("pageTitle").textContent = `レース分析 ${dateLabel}`;
+document.getElementById("mainTitle").textContent = `レース分析 — ${dateLabel}`;
+
+// サマリーカード
+function buildSummaryGrid() {
+  const grid = document.getElementById("summaryGrid");
+  const cards = [
+    { label: "距離（GPX）", val: `${rs.total_distance_km.toFixed(3)} km`, color: "#4fc3f7" },
+    { label: "タイム", val: rs.total_time_str || "N/A", color: "#81c784" },
+    { label: "平均ペース", val: `${rs.avg_pace_str || "N/A"}/km`, color: null },
+    { label: "獲得標高", val: `+${rs.total_ele_gain}m / -${rs.total_ele_loss}m`, color: "#ffb74d" },
+    rs.hr_avg ? { label: "平均心拍（CSV）", val: `${rs.hr_avg} bpm`, color: "#ef9a9a" } : null,
+    rs.max_speed_kmh ? { label: "最高速度（GPX）", val: `${rs.max_speed_kmh} km/h`, color: null } : null,
+  ].filter(Boolean);
+
+  grid.innerHTML = cards.map(c => `
+    <div class="card">
+      <label>${c.label}</label>
+      <div class="val"${c.color ? ` style="color:${c.color}"` : ""}>${c.val}</div>
+    </div>
+  `).join("");
+}
+buildSummaryGrid();
+
+// kmボタン生成
+const kmColors = ['#4fc3f7','#81c784','#4fc3f7','#81c784','#4fc3f7','#81c784','#378ADD','#ef5350','#81c784','#4fc3f7'];
+function getKmColor(idx) { return kmColors[(idx - 1) % kmColors.length]; }
+
+function buildKmButtons() {
+  const container = document.getElementById("km-buttons");
+  container.innerHTML = kmSummaries.map(s => {
+    const isWorst = s.eleNet > 40;
+    const style = isWorst ? ` style="border-color:#ef5350;color:#ef5350;"` : "";
+    const label = isWorst ? `km${s.km} ★` : `km${s.km}`;
+    return `<span id="km${s.km}" class="km-btn"${style} onclick="showKm(${s.km})">${label}</span>`;
+  }).join("");
+}
+buildKmButtons();
+
+// =====================
+// km情報ボックス
+// =====================
+
+function showKm(k) {
+  const d = kmSummaries.find(s => s.km === k);
+  if (!d) return;
+  const box = document.getElementById("info-box");
+  const hrColor = d.hr >= 180 ? "#ef5350" : d.hr >= 170 ? "#ff8a65" : "#ef9a9a";
+  const kmColor = getKmColor(k);
+
+  let hrHtml = d.hr ? `<div><span style="font-size:11px;color:#888;">心拍</span><br><span style="font-weight:500;color:${hrColor}">${d.hr} bpm</span></div>` : "";
+  let powerHtml = d.power ? `<div><span style="font-size:11px;color:#888;">パワー</span><br><span style="font-weight:500;">${d.power}w</span></div>` : "";
+
+  box.innerHTML = `
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+      <div style="font-size:20px;font-weight:500;color:${kmColor}">km${k}</div>
+      <div><span style="font-size:11px;color:#888;">ペース</span><br><span style="font-weight:500;">${d.pace_str || "N/A"}</span></div>
+      ${hrHtml}
+      <div><span style="font-size:11px;color:#888;">標高変化</span><br><span style="font-weight:500;color:${d.eleNet>0?"#ffb74d":"#4fc3f7"}">${d.eleNet>0?"+":""}${d.eleNet.toFixed(1)}m</span></div>
+      <div><span style="font-size:11px;color:#888;">上り/下り</span><br><span style="font-weight:500;">↑${d.eleGain.toFixed(0)}m ↓${d.eleLoss.toFixed(0)}m</span></div>
+      ${powerHtml}
+    </div>
+    ${d.comment ? `<div style="margin-top:8px;font-size:13px;color:#aaa;">${d.comment}</div>` : ""}
+  `;
+  document.querySelectorAll(".km-btn").forEach(b => b.classList.remove("active"));
+  const btn = document.getElementById("km" + k);
+  if (btn) btn.classList.add("active");
+  drawMap(k);
+}
+
+// =====================
+// 地図 Canvas
+// =====================
+
+const lats = route.map(r => r[0]);
+const lons = route.map(r => r[1]);
+const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+
+function toCanvas(lat, lon, W, H, pad) {
+  const x = pad + (lon - minLon) / (maxLon - minLon) * (W - pad * 2);
+  const y = pad + (maxLat - lat) / (maxLat - minLat) * (H - pad * 2);
+  return [x, y];
+}
+
+function drawMap(highlight) {
+  const canvas = document.getElementById("mapCanvas");
+  const W = canvas.width, H = canvas.height;
+  const pad = 40;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0f3460";
+  ctx.fillRect(0, 0, W, H);
+
+  // グリッド
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad + (H - pad * 2) * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+    const x = pad + (W - pad * 2) * i / 4;
+    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, H - pad); ctx.stroke();
+  }
+
+  // ルート描画（km別色分け）
+  const maxKm = Math.max(...route.map(r => r[2]));
+  for (let km = 1; km <= maxKm; km++) {
+    const seg = route.filter(r => r[2] === km);
+    if (seg.length < 2) continue;
+    const isHL = highlight && km === highlight;
+    ctx.beginPath();
+    ctx.lineWidth = isHL ? 5 : 2.5;
+    ctx.strokeStyle = isHL
+      ? getKmColor(km)
+      : (highlight ? "rgba(255,255,255,0.2)" : getKmColor(km));
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const [sx, sy] = toCanvas(seg[0][0], seg[0][1], W, H, pad);
+    ctx.moveTo(sx, sy);
+    seg.forEach(p => { const [x, y] = toCanvas(p[0], p[1], W, H, pad); ctx.lineTo(x, y); });
+    ctx.stroke();
+  }
+
+  // kmラベル
+  kmSummaries.forEach(s => {
+    const { lat, lon } = s.km_label;
+    const [x, y] = toCanvas(lat, lon, W, H, pad);
+    const isHL = highlight && s.km === highlight;
+    ctx.beginPath();
+    ctx.arc(x, y, isHL ? 10 : 6, 0, Math.PI * 2);
+    ctx.fillStyle = getKmColor(s.km);
+    ctx.fill();
+    ctx.fillStyle = "#000";
+    ctx.font = `bold ${isHL ? 11 : 9}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(s.km, x, y);
+  });
+
+  // スタートマーカー
+  const [sx, sy] = toCanvas(route[0][0], route[0][1], W, H, pad);
+  ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff"; ctx.fill();
+  ctx.fillStyle = "#000"; ctx.font = "bold 9px sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("S", sx, sy);
+
+  // 方角
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText("N↑", W - 8, 8);
+}
+
+drawMap(null);
+
+// =====================
+// 標高プロファイル
+// =====================
+
+new Chart(document.getElementById("eleChart"), {
+  type: "line",
+  data: {
+    labels: elevationProfile.map(p => p[0].toFixed(1)),
+    datasets: [{
+      data: elevationProfile.map(p => p[1]),
+      borderColor: "#ffb74d",
+      backgroundColor: "rgba(255,183,77,0.15)",
+      borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => `${ctx.raw.toFixed(1)}m` } }
+    },
+    scales: {
+      x: {
+        ticks: { font: { size: 10 }, color: "#888", callback: (v, i) => i % 10 === 0 ? elevationProfile[i][0].toFixed(1) + "km" : "" },
+        grid: { color: "rgba(255,255,255,0.05)" }
+      },
+      y: {
+        ticks: { font: { size: 10 }, color: "#ffb74d", callback: v => `${v}m` },
+        grid: { color: "rgba(255,255,255,0.05)" }
+      }
+    }
+  }
+});
+
+// =====================
+// ペースチャート
+// =====================
+
+const kmLabels = kmSummaries.map(s => `km${s.km}`);
+const paceVals = kmSummaries.map(s => s.pace);
+const eleNets = kmSummaries.map(s => s.eleNet);
+
+new Chart(document.getElementById("paceChart"), {
+  type: "bar",
+  data: {
+    labels: kmLabels,
+    datasets: [
+      {
+        label: "ペース",
+        data: paceVals,
+        backgroundColor: paceVals.map(p => p >= 6.5 ? "#ef5350" : p <= 5.7 ? "#4fc3f7" : "#4a90d9"),
+        yAxisID: "y", order: 2
+      },
+      {
+        label: "標高変化",
+        data: eleNets,
+        type: "line",
+        borderColor: "#ffb74d",
+        backgroundColor: "transparent",
+        pointBackgroundColor: eleNets.map(e => e > 20 ? "#ef5350" : e < -20 ? "#4fc3f7" : "#ffb74d"),
+        pointRadius: 5, tension: 0.3, yAxisID: "y2", order: 1
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            if (ctx.dataset.yAxisID === "y") {
+              const m = Math.floor(ctx.raw);
+              const s = Math.round((ctx.raw - m) * 60);
+              return `${m}'${String(s).padStart(2, "0")}"`;
+            }
+            return `標高: ${ctx.raw > 0 ? "+" : ""}${ctx.raw.toFixed(1)}m`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { ticks: { font: { size: 11 }, color: "#aaa", autoSkip: false }, grid: { display: false } },
+      y: {
+        position: "left", min: 4.5, max: 7.5,
+        ticks: { font: { size: 10 }, color: "#aaa", callback: v => { const m = Math.floor(v); const s = Math.round((v - m) * 60); return `${m}'${String(s).padStart(2, "0")}"`;} },
+        grid: { color: "rgba(255,255,255,0.05)" }
+      },
+      y2: {
+        position: "right", min: -60, max: 60,
+        ticks: { font: { size: 10 }, color: "#ffb74d", callback: v => `${v > 0 ? "+" : ""}${v}m` },
+        grid: { display: false }
+      }
+    }
+  }
+});
+
+// =====================
+// 心拍チャート（スプリットデータがある場合のみ表示）
+// =====================
+
+const hrData = kmSummaries.map(s => s.hr).filter(h => h != null);
+if (hrData.length > 0) {
+  document.getElementById("hrChart-section").style.display = "block";
+
+  new Chart(document.getElementById("tripleChart"), {
+    type: "bar",
+    data: {
+      labels: kmLabels,
+      datasets: [
+        {
+          label: "標高変化(m)",
+          data: eleNets,
+          backgroundColor: eleNets.map(e => e > 20 ? "rgba(239,83,80,0.75)" : e < -20 ? "rgba(79,195,247,0.75)" : "rgba(180,180,180,0.35)"),
+          borderColor: eleNets.map(e => e > 20 ? "#ef5350" : e < -20 ? "#4fc3f7" : "#888"),
+          borderWidth: 1, yAxisID: "y", order: 2
+        },
+        {
+          label: "心拍(bpm)",
+          data: kmSummaries.map(s => s.hr),
+          type: "line",
+          borderColor: "#ef9a9a",
+          backgroundColor: "transparent",
+          pointBackgroundColor: kmSummaries.map(s => s.hr >= 180 ? "#ef5350" : s.hr >= 170 ? "#ff8a65" : "#ef9a9a"),
+          pointRadius: 5, borderWidth: 2, tension: 0.3, yAxisID: "y2", order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.yAxisID === "y") return `標高: ${ctx.raw > 0 ? "+" : ""}${ctx.raw.toFixed(1)}m`;
+              return `心拍: ${ctx.raw} bpm`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { font: { size: 11 }, color: "#aaa", autoSkip: false }, grid: { display: false } },
+        y: {
+          position: "left", min: -60, max: 60,
+          title: { display: true, text: "標高変化(m)", color: "#ffb74d", font: { size: 10 } },
+          ticks: { font: { size: 10 }, color: "#ffb74d", callback: v => `${v > 0 ? "+" : ""}${v}m` },
+          grid: { color: "rgba(255,255,255,0.07)" }
+        },
+        y2: {
+          position: "right", min: 145, max: 200,
+          title: { display: true, text: "心拍(bpm)", color: "#ef9a9a", font: { size: 10 } },
+          ticks: { font: { size: 10 }, color: "#ef9a9a" },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
